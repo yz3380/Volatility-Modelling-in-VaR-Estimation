@@ -1,7 +1,11 @@
 # Analysis of Volatility Modelling in VaR Estimation
 Term Project for GR5261 - Statistical Methods in Finance
 
-## Authors
+## [Presentation Slides](https://github.com/yz3380/Volatility-Modelling-in-VaR-Estimation/blob/master/GR5261_Presentation_Group9.pdf)  
+
+## [Complete Report](https://github.com/yz3380/Volatility-Modelling-in-VaR-Estimation/blob/master/Group9_Project%2BReport.pdf)  
+
+### Authors
 Yunxiao Zhao, yz3380
 
 Zhichao Liu, zl2686
