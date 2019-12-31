@@ -1,0 +1,217 @@
+---
+title: "5261Project"
+author: "yz3380"
+date: "April 14, 2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# packages
+library(MASS)
+library(rugarch)
+library(fGarch)
+require(xts)
+require(scales)
+```
+
+###GARCH Model in estimating VaR
+```{r message=FALSE, warning=FALSE}
+
+# read stock price data
+return <- read.csv("closedata_return.csv")
+return[,-1] <- return[,-1] + 1
+return$Date <- as.Date(return$Date, "%m/%d/%Y")
+colnames(return) <- c("Date", "AAPL", "AMZN", "FB", "GM", "NFLX", "SPY")
+Date <- return[,1] # save the date
+rownames(return) <- Date
+return <- return[,-1]
+
+# transform price data into 100*log return Time series
+return<- 100*log(return)
+AAPL.xts <- na.omit(xts(x = return$AAPL, order.by = Date))
+AMZN.xts <- na.omit(xts(x = return$AMZN, order.by = Date))
+FB.xts <- na.omit(xts(x = return$FB, order.by = Date))
+GM.xts <- na.omit(xts(x = return$GM, order.by = Date))
+NFLX.xts <- na.omit(xts(x = return$NFLX, order.by = Date))
+SPY.xts <- na.omit(xts(x = return$SPY, order.by = Date))
+# Other types of financial data we would like to use
+# Exchange rate, USD/JPY, USD/CNY
+# Bond price 10yrs TSY
+# Market Index, SP500, HSI, NIKKEI225, DAX30, CAC40, FTSE100
+
+
+# plot the return time series
+#plot(AAPL~Date, data=return, type='l', xlab='Date', ylab='Log Return')
+plot(AAPL.xts, col='lightblue')
+
+# fit the Garch model for AAPL
+
+# specify our model
+# fit ARMA-GARCH model with normal error
+model1 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1, 1)), mean.model=list(armaOrder=c(1, 0), include.mean=TRUE), distribution.model="norm")
+model1_fit <- ugarchfit(spec=model1, data=AAPL.xts, solver.control=list(trace=0))
+
+# Model goodness of fit
+#qqnorm(residuals(model1_fit))
+#abline(0,1)
+plot(model1_fit, which=9) # qqplot
+plot(model1_fit, which=10) # acf of residuals
+plot(model1_fit, which=11) # acf of squared residuals
+
+# back testing VaR
+VaR_1 <- quantile(model1_fit, 0.01) # train VaR / in-sample VaR
+mean(return$AAPL<VaR_1) # VaR violation rate / back-testing
+
+# fit ARMA-GARCH model with t error
+modelt <- ugarchspec(mean.model=list(armaOrder=c(1,1)), variance.model=list(garchOrder=c(1,1)), distribution.model="std")
+modelt_fit <- ugarchfit(data=AAPL.xts, spec=modelt)
+show(modelt_fit) # check the Pearson Goodness-of-Fit test, it works well
+
+# MLE t fit to residuals
+err1 <- as.vector(residuals(modelt_fit, standardize=TRUE))
+fitdistr(err1,"t")
+modelt_fit@fit$coef
+
+qqplot(sort(err1), sort(rt(1257,df=modelt_fit@fit$coef[7])), main='t-plot, df=3.92', ylab='t-quantile', xlab='Standardized residual quantiles')
+abline(0, 1)
+plot(modelt_fit, which=9)
+
+# acf of residuals, not satisfying , but from Ljung-Box test we can assume no serial correlation in residuals
+plot(modelt_fit, which=9) # qqplot
+plot(modelt_fit, which=10) # acf of residuals
+plot(modelt_fit, which=11) # acf of squared residuals
+
+plot(modelt_fit,which=2) # Plot series with 1% VaR limits
+VaR_2 <- quantile(modelt_fit, 0.01) # train VaR / in-sample VaR
+mean(return$AAPL<VaR_2) # better than normal assumption!
+
+
+```
+
+```{r message=FALSE, warning=FALSE}
+# forecasting
+model1_for <- ugarchforecast(model1_fit, data=NULL, n.ahead=10, n.roll=0, out.sample=0) # sigma: conditional standard deviation
+plot(model1_for, which=1) # plot forecast
+
+# Sample forecast
+model2 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1, 1)), mean.model=list(armaOrder=c(1, 1)), distribution.model="std")
+model2_fit <- ugarchfit(model2, data=AAPL.xts, out.sample=2)
+model2_for <- ugarchforecast(model2_fit, data=NULL, n.ahead=1, n.roll=2, out.sample=2)
+#qnorm(0.05)*sigma(model2_for)+fitted(model2_for)
+quantile(model2_for,0.05) # estimated 0.05 VaR
+
+# rolling forecast
+model <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1, 1)), mean.model=list(armaOrder=c(1, 1)), distribution.model='std')
+modelroll1 <- ugarchroll(model, data=AAPL.xts, n.ahead=1, n.start=250, refit.every=10, refit.window=c("moving"), calculate.VaR=TRUE, VaR.alpha=c(0.01, 0.05), keep.coef=TRUE)
+plot(modelroll1, which=3)
+plot(modelroll1, which=4)
+```
+
+```{r message=FALSE, warning=FALSE}
+# Analysis functions
+# Back-test VaR function with ES
+Backtest_VaR <- function(data, ar=1, ma=1, alpha=1, beta=1, dist='std'){
+  model <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(alpha, beta)), mean.model=list(armaOrder=c(ar, ma)), distribution.model=dist)
+  model_fit <- ugarchfit(model, data=data)
+  VaR95 <- quantile(model_fit, 0.05)
+  VaR99 <- quantile(model_fit, 0.01)
+  rate95 <- mean(data<VaR95)
+  rate99 <- mean(data<VaR99)
+  shortfall95 <- mean(data[data<VaR95])
+  shortfall99 <- mean(data[data<VaR99])
+  result <-list(VaR95=VaR95, VaR99=VaR99, rate95=rate95, rate99=rate99, shortfall95=shortfall95, shortfall99=shortfall99)
+  return(result)
+}
+
+# Rolling VaR estimation function(ARMA+GARCH)
+Rolling_VaR <- function(data, ar=1, ma=1, alpha=1, beta=1, dist='std', rolling, refit){
+  #n <- length(data)
+  model <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(alpha, beta)), mean.model=list(armaOrder=c(ar, ma)), distribution.model=dist)
+  modelroll <- ugarchroll(model, data=data, n.ahead=1, n.start=rolling, refit.every=refit, refit.window=c("moving"), calculate.VaR=TRUE, VaR.alpha=c(0.01, 0.05), keep.coef=TRUE) # rolling forecast, use 'rolling' days forecaste 'refit' days VaR
+  VaR95 <- modelroll@forecast$VaR[,2]
+  VaR99 <- modelroll@forecast$VaR[,1]
+  real <- modelroll@forecast$VaR[,3]
+  rate95 <- mean(real<VaR95)
+  rate99 <- mean(real<VaR99)
+  shortfall95 <- mean(real[real<VaR95])
+  shortfall99 <- mean(real[real<VaR99])
+  result <-list(VaR95=VaR95, VaR99=VaR99, rate95=rate95, rate99=rate99, shortfall95=shortfall95, shortfall99=shortfall99)
+  return(result)
+}
+```
+
+```{r message=FALSE, warning=FALSE}
+# BacktestResults on different data
+
+# input data
+Stocks <- list('AAPL'=AAPL.xts, 'AMZN'=AMZN.xts, 'FB'=FB.xts, 'GM'=GM.xts, 'NFLX'=NFLX.xts, 'SPY'=SPY.xts)
+
+# implement function
+Violation <- function(datalist){
+  n <- length(datalist)
+  BktVaRn <- matrix(0, nrow=n, ncol=2)
+  stocknames <- names(datalist)
+  rownames(BktVaRn) <- stocknames
+  colnames(BktVaRn) <- c("95VaR Violation%", "99VaR Violation%")
+  BktVaRt <- matrix(0, nrow=n, ncol=2)
+  rownames(BktVaRt) <- stocknames
+  colnames(BktVaRt) <- c("95VaR Violation%", "99VaR Violation%")
+
+  # normal assumption
+  for (i in 1:n){
+    result <- Backtest_VaR(datalist[[i]], dist='norm')
+    BktVaRn[i,1] <- result$rate95
+    BktVaRn[i,2] <- result$rate99
+  }
+  # t assumption
+  for (i in 1:n){
+    result <- Backtest_VaR(datalist[[i]])
+    BktVaRt[i,1] <- result$rate95
+    BktVaRt[i,2] <- result$rate99
+  }
+
+  BktVaRn[] <- percent(BktVaRn)
+  BktVaRt[] <- percent(BktVaRt)
+  return(list(BktVaRn=BktVaRn, BktVaRt=BktVaRt))
+}
+
+Violation(Stocks)
+```
+
+```{r message=FALSE, warning=FALSE}
+# Rolling estimation results on different data
+
+Rolling <- function(datalist, rolling, refit){
+  n <- length(datalist)
+  RollVaRn <- matrix(0, nrow=n, ncol=2)
+  stocknames <- names(datalist)
+  rownames(RollVaRn) <- stocknames
+  colnames(RollVaRn) <- c("95VaR Violation%", "99VaR Violation%")
+  RollVaRt <- matrix(0, nrow=n, ncol=2)
+  rownames(RollVaRt) <- stocknames
+  colnames(RollVaRt) <- c("95VaR Violation%", "99VaR Violation%")
+
+  # normal assumption
+  for (i in 1:n){
+    result <- Rolling_VaR(datalist[[i]], dist='norm', rolling=rolling, refit=refit)
+    RollVaRn[i,1] <- result$rate95
+    RollVaRn[i,2] <- result$rate99
+  }
+  # t assumption
+  for (i in 1:n){
+    result <- Rolling_VaR(datalist[[i]], rolling=rolling, refit=refit)
+    RollVaRt[i,1] <- result$rate95
+    RollVaRt[i,2] <- result$rate99
+  }
+
+  RollVaRn[] <- percent(RollVaRn)
+  RollVaRt[] <- percent(RollVaRt)
+  return(list(RollVaRn=RollVaRn, RollVaRt=RollVaRt))
+}
+
+Rolling(Stocks, 250, 10)
+
+```
+

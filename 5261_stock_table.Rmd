@@ -1,0 +1,91 @@
+---
+title: "stock_table"
+author: "yz3380"
+date: "April 22, 2019"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+###Model_test on stocks
+```{r}
+# 100*logreturn
+lg_return_100<-function(data){
+  data<-as.vector(as.numeric(data))
+  n<-length(data)
+  logreturn<-100*log(data[-1]/data[-n])
+  return(logreturn)
+}
+
+price <- read.csv("stocks.csv")
+bond<-read.csv("TNX_bond.csv")
+Date <- as.Date(price$Date[-1], "%m/%d/%Y") # save the date for tseries
+bDate <-as.Date(bond$Date[-1], "%m/%d/%Y")
+n<-nrow(price)
+
+# transform price data into 100*log return Time series
+return <- price[-1,]/price[-n,]
+return <- 100*log(return[,-1])
+breturn<-lg_return_100(as.numeric(bond$price))
+
+AAPL.xts <- na.omit(xts(x = return$AAPL.Close, order.by = Date))
+AMZN.xts <- na.omit(xts(x = return$AMZN.Close, order.by = Date))
+NFLX.xts <- na.omit(xts(x = return$NFLX.Close, order.by = Date))
+MSFT.xts <- na.omit(xts(x = return$MSFT.Close, order.by = Date))
+SNE.xts <- na.omit(xts(x = return$SNE.Close, order.by = Date))
+bond.xts<-na.omit(xts(x=breturn,order.by=bDate))
+
+
+# Rolling estimation
+#Rolling(datalist=Stocks, ar=1, ma=1, alpha=1, beta=1, rolling=250, refit=10)
+
+Stocks <- list('AAPL'=AAPL.xts, 'AMZN'=AMZN.xts, 'MSFT'=MSFT.xts, 'SNE'=SNE.xts, 'NFLX'=NFLX.xts, 'Bond'=bond.xts)
+Bond <- list('Bond'=bond.xts)
+```
+
+```{r}
+# fixed refit test rolling
+Rolling(datalist=Stocks, ar=1, ma=1, alpha=1, beta=1, rolling=1000, refit=10)
+Rolling(datalist=Stocks, ar=1, ma=1, alpha=1, beta=1, rolling=500, refit=10)
+Rolling(datalist=Stocks, ar=1, ma=1, alpha=1, beta=1, rolling=250, refit=10)
+Rolling(datalist=Stocks, ar=1, ma=1, alpha=1, beta=1, rolling=100, refit=10)
+Rolling(datalist=Stocks, ar=1, ma=1, alpha=1, beta=1, rolling=50, refit=10)
+
+# fixed rolling test refit
+Rolling(datalist=Stocks, ar=1, ma=1, alpha=1, beta=1, rolling=250, refit=5)
+Rolling(datalist=Stocks, ar=1, ma=1, alpha=1, beta=1, rolling=250, refit=10)
+Rolling(datalist=Stocks, ar=1, ma=1, alpha=1, beta=1, rolling=250, refit=20)
+Rolling(datalist=Stocks, ar=1, ma=1, alpha=1, beta=1, rolling=250, refit=60)
+Rolling(datalist=Stocks, ar=1, ma=1, alpha=1, beta=1, rolling=250, refit=120)
+
+# test iGARCH and eGARCH
+ie_Rolling(datalist=Stocks, ar=1, ma=1, alpha=1, beta=1, rolling=250, refit=10)
+```
+
+```{r}
+# Indices
+CAC40<-read.csv("CAC40_index.csv")
+DAX30<-read.csv("GDAXI(DAX30)_index.csv")
+HSI<-read.csv("HSI_index.csv")
+N225<-read.csv("N225_index.csv")
+SP500<-read.csv("S&P500_index.csv")
+
+cDate <- as.Date(CAC40$Date[-1], "%m/%d/%Y")
+dDate <- as.Date(DAX30$Date[-1], "%m/%d/%Y")
+hDate <- as.Date(HSI$Date[-1], "%m/%d/%Y")
+nDate <- as.Date(N225$Date[-1], "%m/%d/%Y")
+sDate <- as.Date(SP500$Date[-1], "%m/%d/%Y")
+
+CAC40.xts <- na.omit(xts(x = lg_return_100(CAC40$CAC40.Close), order.by = cDate))
+DAX30.xts <- na.omit(xts(x = lg_return_100(DAX30$GDAXI.Close), order.by = dDate))
+HSI.xts <- na.omit(xts(x = lg_return_100(HSI$HSI.Close), order.by = hDate))
+N225.xts <- na.omit(xts(x = lg_return_100(N225$N225.Close), order.by = nDate))
+SP500.xts <- na.omit(xts(x = lg_return_100(SP500$S.P500.Close), order.by = sDate))
+
+Index<-list('CAC40'=CAC40.xts, 'DAX30'=DAX30.xts, 'HSI'=HSI.xts, 'N225'=N225.xts, 'SP500'=SP500.xts)
+
+Rolling(datalist=Index, ar=1, ma=1, alpha=1, beta=1, rolling=500, refit=10)
+```
+
